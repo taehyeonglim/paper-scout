@@ -1,0 +1,11 @@
+{
+  "name": "paper-scout",
+  "owner": { "name": "Taehyeong Lim" },
+  "plugins": [
+    {
+      "name": "paper-scout",
+      "source": "./",
+      "description": "Literature-discovery agents with a deterministic academic-API backbone (incl. KCI for Korean scholarship)."
+    }
+  ]
+}
