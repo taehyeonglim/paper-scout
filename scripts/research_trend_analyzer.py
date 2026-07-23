@@ -148,13 +148,18 @@ class ResearchTrendAnalyzer:
         return papers_by_year
 
     def _dedupe_by_doi_title(self, papers):
-        """DOI 우선, 제목 정규화 보조 중복 제거 (소스 간 겹침 흡수)"""
+        """DOI + 정규화 제목 중복 제거 (소스 간 겹침 흡수).
+
+        제목 검사는 DOI 보유 여부와 무관하게 전 논문에 적용 —
+        S2 무DOI 논문 뒤에 오는 OpenAlex 동제목 DOI 논문도 흡수
+        (related_paper_finder._merge_and_deduplicate와 동일 의미론).
+        """
         seen_dois, seen_titles, unique = set(), set(), []
         for p in papers:
             if p.doi and p.doi in seen_dois:
                 continue
             title_key = (p.title or "").lower().strip()
-            if not p.doi and title_key and title_key in seen_titles:
+            if title_key and title_key in seen_titles:
                 continue
             if p.doi:
                 seen_dois.add(p.doi)

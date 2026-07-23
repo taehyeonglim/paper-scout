@@ -70,3 +70,18 @@ def test_trend_analyzer_dedupes_openalex_against_s2(monkeypatch, tmp_path):
     ]
     result = a.analyze_trend("topic", TrendConfig(years=0, papers_per_year=10))
     assert result["total_papers"] == 2               # 3건 수집, DOI dedup 후 2건
+
+
+def test_trend_analyzer_dedupes_no_doi_s2_against_doi_openalex(monkeypatch, tmp_path):
+    """S2 학회논문(DOI 부재) → OpenAlex 동제목(DOI 보유) 순서 — 제목 dedup이 무조건 적용돼야 1건."""
+    monkeypatch.delenv("PAPER_SCOUT_LLM_CMD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from research_trend_analyzer import ResearchTrendAnalyzer, TrendConfig
+
+    a = ResearchTrendAnalyzer(Config.load())
+    a.ss_client = MagicMock()
+    a.ss_client.search_papers.return_value = [_paper("s2:1", doi=None, title="Same")]
+    a.openalex_client = MagicMock()
+    a.openalex_client.search_papers.return_value = [_paper("openalex:W9", doi="10.1/x", title="Same")]
+    result = a.analyze_trend("topic", TrendConfig(years=0, papers_per_year=10))
+    assert result["total_papers"] == 1               # 동일 제목 → 1건으로 수렴
