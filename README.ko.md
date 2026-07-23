@@ -23,6 +23,55 @@ paper-scout는 Claude Code 플러그인입니다: 4종의 문헌탐색 서브에
 
 각 에이전트의 상세 동작과 할루시네이션 방지 규칙은 `agents/*.md`에 문서화되어 있습니다.
 
+## 각 에이전트의 작동 방식
+
+네 에이전트는 하나의 역할 분담을 공유합니다: 모든 검색·계산·수치는 Python 백본이 결정론적으로 처리하고, 에이전트(LLM)는 그 결과 JSON을 읽어 서술만 담당합니다. 각 에이전트 정의에는 명시적 할루시네이션 방지 규칙이 박혀 있습니다 — 논문·저자·DOI·지표는 백본의 API 검증 JSON에서만 가져올 수 있고 모델 기억에서 생성할 수 없으며, DOI가 없는 논문은 지어내는 대신 `doi: null`로 유지됩니다. Claude Code에서는 스크립트를 직접 실행할 필요 없이 원하는 것을 설명하면("이 DOI와 관련된 논문 찾아줘", "이 논문 주변 인용 네트워크 그려줘") 해당 에이전트가 아래 파이프라인을 호출합니다. orchestrator 서브커맨드는 `--output-format json|markdown|both`를 지원하며, 보고서는 `./literature-discovery/`에 저장됩니다.
+
+### related-paper-finder
+
+키워드, 시드 DOI, 또는 Semantic Scholar paper ID를 주면 백본이 다음을 수행합니다:
+
+1. Semantic Scholar · arXiv · ERIC · KCI 병렬 검색,
+2. DOI 우선 중복 제거 (paper ID 폴백),
+3. 결정론적 관련성 스코어링 (TF-IDF + 인용 신호, 0.0–1.0 정규화),
+4. `PAPER_SCOUT_LLM_CMD` 설정 시 의미 부합도 기반 재랭킹 (미설정 시 키워드 휴리스틱 폴백 — 어느 쪽이 돌았는지는 `coverage_manifest.rerank_mode`에 기록),
+5. `highly_relevant` / `moderately_relevant` 분류,
+6. LLM 연결 시 발견 논문 전체에 걸친 주제·합의·불일치·연구 갭 종합 (미설정 시 `synthesis.mode: "unavailable"`) — 입력 목록에 없는 인용 ID는 `flagged_uncited`로 격리하는 인용 가드 포함,
+7. `--include-packet` 지정 시 후속 도구가 소비할 수 있는 기계 판독 `discovery_packet.yaml` (핵심 논문 + 검증된 DOI 레지스트리) 생성.
+
+에이전트 층은 그 JSON에서만 근거를 가져와 Top-N 해설을 작성합니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
+    --keywords "virtual reality learning" --limit 10 --year-range 2020-2026
+```
+
+### deep-researcher
+
+주제와 `--depth shallow|medium|deep`를 받아 같은 기계장치의 더 넓고 깊은 변형을 실행합니다: 4개 소스에서 과잉 수집(over-retrieve)한 뒤 의미 재랭킹으로 주제 이탈 결과를 제거하고(적합 결과가 희소하면 `near_matches` — 근접하지만 관련 판정은 아닌 후보 — 를 정직하게 노출), 잔류 논문을 종합해 구조화된 보고서 세트를 작성합니다 — 요약(executive summary)·영향력 있는 논문·최신 연구·트렌드 종합·연구 갭·참고문헌이 `./literature-discovery/RESEARCH/{세션}/outputs/`에 저장됩니다. 긴 실행은 재개 가능합니다: `--list-sessions`와 `--resume [session_id]`. 백본 검증에 더해, 에이전트가 보고 전 Crossref로 논문 DOI를 추가 검증합니다(전체의 50% 이상 샘플링).
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_researcher.py" "AI literacy in teacher education" --depth medium
+```
+
+### citation-network-explorer
+
+시드 DOI 또는 paper ID를 받아 인용 이웃(Semantic Scholar + OpenCitations)을 `--depth` 홉까지, citing / cited / both 방향으로, `--max-nodes` 상한 내에서 탐색합니다. 이후 networkx가 그래프 사실을 계산합니다: PageRank·betweenness 중심성·in/out-degree·커뮤니티 클러스터(`python-louvain` 설치 시 Louvain, 미설치 시 connected-components 폴백). PageRank 상위 N편이 `key_papers`로 반환됩니다. 에이전트는 해석만 담당합니다 — 어떤 논문이 분야의 축인지, 각 클러스터가 무엇인지, 다음에 무엇을 읽을지 — 지표를 스스로 "추정"하는 일은 없습니다. 시드가 국내 문헌이면 KCI 역인용(`scripts/kci/kci_cited_by.py`)으로 보강하되, 두 소스의 중복 범위를 알 수 없으므로 Semantic Scholar 인용수와 합산하지 않고 "국내(KCI) N건"으로 별도 표기합니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" citation-network \
+    --doi "10.1007/s10055-023-00926-5" --depth 2 --top-n 10
+```
+
+### research-trend-analyzer
+
+주제와 분석 기간(`--years`, 기본 5년)을 받아 Semantic Scholar를 연도별로 검색합니다. 집계는 순수 결정론 카운팅입니다: 연도별 출판 수와 성장률, 키워드 빈도 진화(3회 이상 등장), 신흥 주제(성장률 >30%), 쇠퇴 주제(감소율 >20%), 핵심 저자(papers × log(citations+1) 점수), 주요 저널. 에이전트는 이 집계를 서사로 바꿉니다 — 트렌드 해석, 핵심 연구자, 그리고 반환된 논문 안에서만 고른 Foundational 5 + Cutting-edge 5 추천 목록. 상위 저널에 국내 학술지가 나타나면 해당 저널의 KCI 등재구분·인용지수 이력(`scripts/kci/kci_journal.py`)을 해설에 반영할 수 있습니다.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" research-trends \
+    "virtual reality learning" --years 5 --top-n 10
+```
+
 ## 설치
 
 **1. 플러그인 (Claude Code)**

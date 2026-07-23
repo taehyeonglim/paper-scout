@@ -23,6 +23,55 @@ Every run also emits a `coverage_manifest` documenting which sources were querie
 
 Full behavior and hallucination guardrails for each agent are documented in `agents/*.md`.
 
+## How each agent works
+
+All four agents share one division of labor: the Python backbone performs every search, computation, and metric deterministically, and the agent (LLM) only reads the resulting JSON and writes the narrative. Each agent definition carries explicit hallucination guardrails — papers, authors, DOIs, and metrics may only come from the backbone's API-verified JSON, never from model memory, and a paper without a DOI keeps `doi: null` rather than getting an invented one. In Claude Code you don't run the scripts yourself: describe what you need ("find papers related to this DOI", "map the citation network around this paper") and the matching agent invokes the pipeline below. The orchestrator subcommands support `--output-format json|markdown|both`; reports land in `./literature-discovery/`.
+
+### related-paper-finder
+
+Give it keywords, a seed DOI, or a Semantic Scholar paper ID. The backbone then:
+
+1. searches Semantic Scholar, arXiv, ERIC, and KCI in parallel,
+2. deduplicates by DOI (paper-ID fallback),
+3. scores relevance deterministically (TF-IDF and citation signals, normalized 0.0–1.0),
+4. optionally reranks by semantic fit through your `PAPER_SCOUT_LLM_CMD` (keyword-heuristic fallback otherwise — `coverage_manifest.rerank_mode` tells you which ran),
+5. classifies results into `highly_relevant` / `moderately_relevant`,
+6. optionally synthesizes themes / consensus / conflicts / research gaps across the found papers (only when LLM-wired; `synthesis.mode: "unavailable"` otherwise) — with a citation guard that quarantines any cited ID not present in the input set into `flagged_uncited`,
+7. with `--include-packet`, emits a machine-readable `discovery_packet.yaml` (core papers plus a verified DOI registry) for downstream tooling.
+
+The agent layer then writes a top-N commentary strictly from that JSON.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
+    --keywords "virtual reality learning" --limit 10 --year-range 2020-2026
+```
+
+### deep-researcher
+
+Takes a topic plus `--depth shallow|medium|deep` and runs a wider, deeper variant of the same machinery: it over-retrieves from all four sources, semantically reranks to drop off-topic hits (honestly surfacing `near_matches` — close-but-not-relevant candidates — when on-topic results are scarce), synthesizes across the retained papers, and writes a structured report set — executive summary, influential papers, recent work, trends synthesis, research gaps, and a bibliography — under `./literature-discovery/RESEARCH/{session}/outputs/`. Long runs are resumable: `--list-sessions` and `--resume [session_id]` continue where a session stopped. On top of the backbone's verification, the agent DOI-checks reported papers against Crossref (sampling at least 50%).
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_researcher.py" "AI literacy in teacher education" --depth medium
+```
+
+### citation-network-explorer
+
+Takes a seed DOI or paper ID and crawls its citation neighborhood (Semantic Scholar + OpenCitations) up to `--depth` hops, in citing / cited / both directions, capped at `--max-nodes`. networkx then computes the graph facts: PageRank, betweenness centrality, in/out-degree, and community clusters (Louvain when `python-louvain` is installed, connected-components fallback otherwise); the top-N papers by PageRank come back as `key_papers`. The agent interprets — which papers anchor the field, what each cluster is about, what to read next — without ever estimating a metric itself. For Korean seed papers it supplements with KCI reverse citations (`scripts/kci/kci_cited_by.py`), reported as a separate "domestic (KCI): N" count that is never merged into Semantic Scholar totals, because the overlap between the two sources is unknown.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" citation-network \
+    --doi "10.1007/s10055-023-00926-5" --depth 2 --top-n 10
+```
+
+### research-trend-analyzer
+
+Takes a topic and a window (`--years`, default 5) and searches Semantic Scholar year by year. Aggregation is plain deterministic counting: publications per year with growth rates, keyword-frequency evolution (words appearing ≥3 times), emerging topics (>30% growth), declining topics (>20% decline), top authors scored as papers × log(citations+1), and top venues. The agent turns those aggregates into a narrative — trend interpretation, key researchers, and a Foundational-5 + Cutting-edge-5 reading list drawn only from the returned papers. When a Korean journal appears among the top venues, it can pull that journal's KCI registration tier and citation-index history (`scripts/kci/kci_journal.py`) into the commentary.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" research-trends \
+    "virtual reality learning" --years 5 --top-n 10
+```
+
 ## Install
 
 **1. Plugin (Claude Code)**
