@@ -9,7 +9,7 @@ fail-soft 경로만) 전량 이식.
 from unittest.mock import MagicMock, patch
 
 from modules.paper_fetcher import PaperFetcher
-from utils.api_clients import KCIClient
+from utils.api_clients import KCIClient, OpenAlexClient
 from utils.paper_models import Paper
 
 SAMPLE_ARTICLE = {
@@ -114,6 +114,20 @@ def test_kci_respects_enabled_false(monkeypatch):
     assert fetcher.kci_client is None
 
 
+# --- PaperFetcher의 openalex_client 활성화 게이팅 (KCI와 달리 무키도 생성) ---
+
+def test_openalex_enabled_without_key_by_default(monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    fetcher = PaperFetcher({"sources": {**_OTHERS_OFF}})
+    assert isinstance(fetcher.openalex_client, OpenAlexClient)
+
+
+def test_openalex_respects_enabled_false(monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    fetcher = PaperFetcher({"sources": {**_OTHERS_OFF, "openalex": {"enabled": False}}})
+    assert fetcher.openalex_client is None
+
+
 # --- 한글 제목 정규화/중복 제거 회귀 ---
 # 순한글 제목이 ASCII 전용 정규화로 ""가 되어 중복 오판되던 회귀 방지
 # (\w는 유니코드 단어문자라 한글 제목이 빈 문자열로 붕괴하지 않아야 한다).
@@ -159,10 +173,12 @@ def _fetcher_with_mock_kci():
     fetcher.arxiv_client = None
     fetcher.eric_client = None
     fetcher.kci_client = mock_kci
+    fetcher.openalex_client = None
     fetcher.s2_config = {}
     fetcher.arxiv_config = {}
     fetcher.eric_config = {}
     fetcher.kci_config = {"queries_per_project": 2, "results_per_query": 5}
+    fetcher.openalex_config = {}
     return fetcher, mock_kci
 
 
@@ -186,3 +202,46 @@ def test_fallback_to_default_queries_without_ko():
     })
     called = [c.kwargs["query"] for c in mock_kci.search_papers.call_args_list]
     assert called == ["english query one"]
+
+
+# --- fetch_for_project의 OpenAlex 검색 루프 (ERIC 미러 패턴) ---
+
+def _fetcher_with_mock_openalex(openalex_result=None):
+    mock_openalex = MagicMock()
+    mock_openalex.search_papers.return_value = openalex_result or []
+    fetcher = PaperFetcher.__new__(PaperFetcher)
+    fetcher.config = {}
+    fetcher.s2_client = None
+    fetcher.arxiv_client = None
+    fetcher.eric_client = None
+    fetcher.kci_client = None
+    fetcher.openalex_client = mock_openalex
+    fetcher.s2_config = {}
+    fetcher.arxiv_config = {}
+    fetcher.eric_config = {}
+    fetcher.kci_config = {}
+    fetcher.openalex_config = {"queries_per_project": 2, "results_per_query": 5}
+    return fetcher, mock_openalex
+
+
+def test_openalex_queried_with_configured_limit_and_query_cap():
+    fetcher, mock_openalex = _fetcher_with_mock_openalex()
+    fetcher.fetch_for_project({
+        "project_id": "t",
+        "custom_queries": ["query one", "query two", "query three"],
+    })
+    calls = mock_openalex.search_papers.call_args_list
+    # queries_per_project=2 절단
+    assert [c.kwargs["query"] for c in calls] == ["query one", "query two"]
+    assert all(c.kwargs["limit"] == 5 for c in calls)
+
+
+def test_openalex_results_tagged_and_included():
+    result = [Paper(paper_id="openalex:W1", title="OpenAlex hit")]
+    fetcher, mock_openalex = _fetcher_with_mock_openalex(result)
+    papers = fetcher.fetch_for_project({
+        "project_id": "t",
+        "custom_queries": ["query one"],
+    })
+    assert len(papers) == 1
+    assert papers[0].source_db == "openalex"

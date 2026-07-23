@@ -1,7 +1,7 @@
 """
 Paper Fetcher - 다중 소스 논문 검색
 
-Semantic Scholar, arXiv, ERIC, KCI에서 프로젝트 프로파일 기반
+Semantic Scholar, arXiv, ERIC, OpenAlex, KCI에서 프로젝트 프로파일 기반
 논문을 검색하고 통합합니다.
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 # 상위 디렉토리의 utils 모듈 접근
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient
+from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient, OpenAlexClient
 from utils.paper_models import Paper
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ class PaperFetcher:
         self.arxiv_client = None
         self.eric_client = None
         self.kci_client = None
+        self.openalex_client = None
 
         if sources.get("semantic_scholar", {}).get("enabled", True):
             self.s2_client = SemanticScholarClient()
@@ -50,10 +51,15 @@ class PaperFetcher:
             if kci_client.available:
                 self.kci_client = kci_client
 
+        # OpenAlex는 KCI와 달리 무키도 usage-based 쿼터로 동작 (fail-soft)
+        if sources.get("openalex", {}).get("enabled", True):
+            self.openalex_client = OpenAlexClient()
+
         self.s2_config = sources.get("semantic_scholar", {})
         self.arxiv_config = sources.get("arxiv", {})
         self.eric_config = sources.get("eric", {})
         self.kci_config = sources.get("kci", {})
+        self.openalex_config = sources.get("openalex", {})
 
     def fetch_for_project(
         self,
@@ -132,6 +138,21 @@ class PaperFetcher:
                 )
                 for p in papers:
                     p.source_db = "eric"
+                all_papers.extend(papers)
+
+        # OpenAlex 검색 (usage-based free tier, 무키도 동작)
+        if self.openalex_client:
+            limit = self.openalex_config.get("results_per_query", 10)
+            max_queries = self.openalex_config.get("queries_per_project", 2)
+            for query in queries[:max_queries]:
+                papers = self.openalex_client.search_papers(
+                    query=query,
+                    limit=limit,
+                    year_range=year_range,
+                    force_refresh=force_refresh,
+                )
+                for p in papers:
+                    p.source_db = "openalex"
                 all_papers.extend(papers)
 
         # KCI 검색 (국내 학술지) — 한국어 쿼리 우선 공급
