@@ -102,6 +102,26 @@ def test_openalex_survives_when_merged_last_keyless(monkeypatch, tmp_path):
     assert survivors, "마지막 병합 소스(OpenAlex)가 폴백 위치 점수로 구조적 탈락"
 
 
+def test_fallback_distributes_across_relevance_tiers(monkeypatch, tmp_path):
+    """폴백 점수는 소스 내 rank를 HIGH/MODERATE 양쪽으로 자연 분산해야 한다.
+
+    소스 내 rank-4를 HIGH(0.8)로 라벨하는 건 MODERATE로 라벨하는 것만큼
+    인공적 — decay 0.1이면 rank 0~2가 HIGH(>=0.8), rank 3+가 MODERATE로
+    분산되고, floor 0.5로 폴백 논문이 관련성 임계 아래로 떨어지지 않아
+    breadth(반환 총량)가 보존된다. 7편째(rank 6)는 raw 0.4 → floor 0.5가
+    실제로 바인딩되는 케이스.
+    """
+    oa = _tagged("openalex", "openalex", 7, doi_ns=5)
+    f = _finder(monkeypatch, tmp_path, oa)
+
+    _, high, moderate = f.find_by_keywords("q", FinderConfig(limit=10))
+
+    assert len(high) == 3, "소스 내 rank 0~2만 HIGH"
+    assert len(moderate) == 4, "rank 3+는 MODERATE 진입 (floor 0.5로 탈락 없음)"
+    scores = [p.relevance_score for p in high + moderate]
+    assert min(scores) == 0.5, "floor 0.5 계약 (rank 6 raw 0.4 → 0.5)"
+
+
 def test_fallback_scores_independent_of_merge_order(monkeypatch, tmp_path):
     """폴백 점수는 _merge_and_deduplicate 입력(병합) 순서에 의존하면 안 된다."""
     f = _finder(monkeypatch, tmp_path, [])

@@ -344,12 +344,15 @@ class RelatedPaperFinder:
         # 구조적으로 관련성 임계 아래로 밀려 전멸한다 (2026-07-24 무키 스모크
         # 실측: OpenAlex 4편 전부 인덱스 10~13 → 0.5 이하 탈락). 각 소스의
         # 자체 검색 순위(rank)가 결정론 관련성 신호이므로 그것만 사용한다.
+        # decay 0.1 + floor 0.5: rank 0~2 → HIGH(>=0.8), rank 3+ → MODERATE로
+        # 자연 분산 (전건 HIGH 라벨은 전건 MODERATE만큼 인공적), floor가
+        # 관련성 임계(0.5)와 일치해 폴백에서 breadth(반환 총량) 보존.
         source_rank: dict = {}
         for paper in papers:
             rank = source_rank.get(paper.source_db, 0)
             source_rank[paper.source_db] = rank + 1
             if paper.relevance_score == 0.0:
-                paper.relevance_score = max(0.3, 1.0 - (rank * 0.05))
+                paper.relevance_score = max(0.5, 1.0 - (rank * 0.1))
                 paper.relevance_reason = "keyword_match"
 
         result = rerank(query_intent, papers, top_k=len(papers))
