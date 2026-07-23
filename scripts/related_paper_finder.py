@@ -339,10 +339,17 @@ class RelatedPaperFinder:
 
     def _apply_semantic_rerank(self, query_intent, papers, finder_config):
         """검색 결과를 의미 관련성으로 재채점한다. fallback 시 검색 순위 점수 보존."""
-        # fallback 대비 기본 점수 부여 (검색 순위 기반)
-        for i, paper in enumerate(papers):
+        # fallback 대비 기본 점수 부여 — 소스 내 순위 기반 (병합 순서 무관).
+        # 전역 인덱스 기반이면 _merge_and_deduplicate 마지막 병합 소스가
+        # 구조적으로 관련성 임계 아래로 밀려 전멸한다 (2026-07-24 무키 스모크
+        # 실측: OpenAlex 4편 전부 인덱스 10~13 → 0.5 이하 탈락). 각 소스의
+        # 자체 검색 순위(rank)가 결정론 관련성 신호이므로 그것만 사용한다.
+        source_rank: dict = {}
+        for paper in papers:
+            rank = source_rank.get(paper.source_db, 0)
+            source_rank[paper.source_db] = rank + 1
             if paper.relevance_score == 0.0:
-                paper.relevance_score = max(0.3, 1.0 - (i * 0.05))
+                paper.relevance_score = max(0.3, 1.0 - (rank * 0.05))
                 paper.relevance_reason = "keyword_match"
 
         result = rerank(query_intent, papers, top_k=len(papers))

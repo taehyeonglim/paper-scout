@@ -997,7 +997,8 @@ class ERICClient:
             venue=doc.get("source", ""),
             abstract=doc.get("description", ""),
             url=f"https://eric.ed.gov/?id={eric_id}",
-            fields_of_study=doc.get("subject", []) if isinstance(doc.get("subject"), list) else [doc.get("subject", "")]
+            fields_of_study=doc.get("subject", []) if isinstance(doc.get("subject"), list) else [doc.get("subject", "")],
+            source_db="eric",
         )
 
     def _dict_to_paper(self, data: Dict[str, Any]) -> Paper:
@@ -1011,7 +1012,9 @@ class ERICClient:
             venue=data.get("venue"),
             abstract=data.get("abstract"),
             url=data.get("url"),
-            fields_of_study=data.get("fields_of_study", [])
+            fields_of_study=data.get("fields_of_study", []),
+            # 팩토리 fix 이전 stale 캐시(dict에 source_db 부재)도 eric으로 복원
+            source_db=data.get("source_db") or "eric",
         )
 
 

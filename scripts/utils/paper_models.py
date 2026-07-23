@@ -82,7 +82,7 @@ class Paper:
 
     # Deep Researcher용 - 소스 품질 등급 (A-E)
     quality_grade: str = "C"            # A: 최상위, B: 주요, C: 일반, D: 프리프린트, E: 비학술
-    source_db: Optional[str] = None     # semantic_scholar, arxiv, eric
+    source_db: Optional[str] = None     # semantic_scholar, arxiv, eric, openalex, kci
     is_peer_reviewed: Optional[bool] = None  # ERIC에서 제공
     fetched_at: Optional[str] = None    # ISO 형식 타임스탬프
 
@@ -204,6 +204,7 @@ class Paper:
             url=data.get("url"),
             pdf_url=data.get("openAccessPdf", {}).get("url") if data.get("openAccessPdf") else None,
             fields_of_study=[f.get("category", "") for f in data.get("s2FieldsOfStudy", [])],
+            source_db="semantic_scholar",
         )
 
     @classmethod
@@ -252,6 +253,7 @@ class Paper:
             url=result.entry_id,
             pdf_url=result.pdf_url,
             fields_of_study=result.categories if hasattr(result, 'categories') else [],
+            source_db="arxiv",
         )
 
 

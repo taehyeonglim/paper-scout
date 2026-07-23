@@ -72,6 +72,56 @@ def test_trend_analyzer_dedupes_openalex_against_s2(monkeypatch, tmp_path):
     assert result["total_papers"] == 2               # 3건 수집, DOI dedup 후 2건
 
 
+def _tagged(prefix, source_db, n, doi_ns):
+    """소스 태깅된 mock Paper n편 (팩토리 fix 이후 현실 조건 — source_db 보유)."""
+    papers = [
+        _paper(f"{prefix}:{i}", doi=f"10.{doi_ns}/{prefix}{i}", title=f"{prefix} paper {i}")
+        for i in range(n)
+    ]
+    for p in papers:
+        p.source_db = source_db
+    return papers
+
+
+def test_openalex_survives_when_merged_last_keyless(monkeypatch, tmp_path):
+    """무키 현실 조건 재현: S2 빈손(429) + arXiv 5 + ERIC 5 뒤에 OA 5가 마지막 병합.
+
+    휴리스틱 폴백이 병합 인덱스 기반 점수면 OA 5편이 전역 인덱스 10~14에 놓여
+    전부 관련성 임계(0.5) 이하/절단 밖으로 밀려 탈락한다 (Task 4 라이브 스모크
+    실측과 동일 산술). 폴백은 병합 위치와 무관하게 각 소스 상위 논문을
+    생존시켜야 한다.
+    """
+    oa = _tagged("openalex", "openalex", 5, doi_ns=5)
+    f = _finder(monkeypatch, tmp_path, oa)
+    f.arxiv_client.search_papers.return_value = _tagged("arxiv", "arxiv", 5, doi_ns=3)
+    f.eric_client.search_papers.return_value = _tagged("eric", "eric", 5, doi_ns=4)
+
+    _, high, moderate = f.find_by_keywords("q", FinderConfig(limit=5))
+
+    survivors = [p for p in high + moderate if p.source_db == "openalex"]
+    assert survivors, "마지막 병합 소스(OpenAlex)가 폴백 위치 점수로 구조적 탈락"
+
+
+def test_fallback_scores_independent_of_merge_order(monkeypatch, tmp_path):
+    """폴백 점수는 _merge_and_deduplicate 입력(병합) 순서에 의존하면 안 된다."""
+    f = _finder(monkeypatch, tmp_path, [])
+
+    def build(arxiv_first):
+        ax = _tagged("arxiv", "arxiv", 3, doi_ns=3)
+        oa = _tagged("openalex", "openalex", 3, doi_ns=5)
+        return ax + oa if arxiv_first else oa + ax
+
+    r1 = f._apply_semantic_rerank("q", build(arxiv_first=True), FinderConfig(limit=5))
+    r2 = f._apply_semantic_rerank("q", build(arxiv_first=False), FinderConfig(limit=5))
+
+    s1 = {p.paper_id: p.relevance_score for p in r1}
+    s2 = {p.paper_id: p.relevance_score for p in r2}
+    assert s1 == s2, "동일 논문 집합의 폴백 점수가 병합 순서에 따라 달라짐"
+    assert [p.paper_id for p in r1] == [p.paper_id for p in r2], (
+        "폴백 정렬 결과가 병합 순서에 따라 달라짐"
+    )
+
+
 def test_trend_analyzer_dedupes_no_doi_s2_against_doi_openalex(monkeypatch, tmp_path):
     """S2 학회논문(DOI 부재) → OpenAlex 동제목(DOI 보유) 순서 — 제목 dedup이 무조건 적용돼야 1건."""
     monkeypatch.delenv("PAPER_SCOUT_LLM_CMD", raising=False)

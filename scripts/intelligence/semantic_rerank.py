@@ -62,7 +62,9 @@ def rerank(query_intent: str, papers: List[Paper], top_k: int, timeout: int = 90
 
     parsed = _call_llm_json(query_intent, papers, timeout)
     if parsed is None:
-        ranked = sorted(papers, key=lambda p: p.relevance_score, reverse=True)
+        # 동점은 안정적 id로 타이브레이크 — 폴백 출력이 입력(병합) 순서에
+        # 의존하지 않도록 (stable sort의 입력 순서 의존 제거)
+        ranked = sorted(papers, key=lambda p: (-p.relevance_score, p.doi or p.paper_id))
         return RerankResult(papers=ranked[:top_k], mode="heuristic_fallback", dropped=0)
 
     by_id = {(p.doi or p.paper_id): p for p in papers}
