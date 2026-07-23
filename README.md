@@ -8,7 +8,7 @@ Literature-discovery agents for [Claude Code](https://claude.com/claude-code), b
 
 ## What it is
 
-paper-scout is a Claude Code plugin: 4 literature-discovery subagents paired with a Python backbone that does the actual API calls, rate limiting, caching, and scoring deterministically — the LLM only reads the resulting JSON and writes the natural-language synthesis. The backbone queries Semantic Scholar, arXiv, OpenCitations, and ERIC, plus **KCI (Korea Citation Index)** for Korean-language journal coverage that most literature tools skip entirely.
+paper-scout is a Claude Code plugin: 4 literature-discovery subagents paired with a Python backbone that does the actual API calls, rate limiting, caching, and scoring deterministically — the LLM only reads the resulting JSON and writes the natural-language synthesis. The backbone queries Semantic Scholar, arXiv, OpenCitations, ERIC, and OpenAlex, plus **KCI (Korea Citation Index)** for Korean-language journal coverage that most literature tools skip entirely.
 
 Every run also emits a `coverage_manifest` documenting which sources were queried, how many results each returned, and why any source was excluded (missing key, disabled flag, etc.) — so you can tell a thin result set from a broken one.
 
@@ -31,7 +31,7 @@ All four agents share one division of labor: the Python backbone performs every 
 
 Give it keywords, a seed DOI, or a Semantic Scholar paper ID. The backbone then:
 
-1. searches Semantic Scholar, arXiv, ERIC, and KCI in parallel,
+1. for a keyword query, searches Semantic Scholar, arXiv, ERIC, KCI, and OpenAlex in parallel — a seed DOI or paper ID instead expands purely through Semantic Scholar (recommendations, citing/cited papers, and a title-keyword search; the other four sources don't participate),
 2. deduplicates by DOI (paper-ID fallback),
 3. scores relevance deterministically (TF-IDF and citation signals, normalized 0.0–1.0),
 4. optionally reranks by semantic fit through your `PAPER_SCOUT_LLM_CMD` (keyword-heuristic fallback otherwise — `coverage_manifest.rerank_mode` tells you which ran),
@@ -48,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
 
 ### deep-researcher
 
-Takes a topic plus `--depth shallow|medium|deep` and runs a wider, deeper variant of the same machinery: it over-retrieves from all four sources, semantically reranks to drop off-topic hits (honestly surfacing `near_matches` — close-but-not-relevant candidates — when on-topic results are scarce), synthesizes across the retained papers, and writes a structured report set — executive summary, influential papers, recent work, trends synthesis, research gaps, and a bibliography — under `./literature-discovery/RESEARCH/{session}/outputs/`. Long runs are resumable: `--list-sessions` and `--resume [session_id]` continue where a session stopped. On top of the backbone's verification, the agent DOI-checks reported papers against Crossref (sampling at least 50%).
+Takes a topic plus `--depth shallow|medium|deep` and runs a wider, deeper variant of the same machinery: it over-retrieves from all five sources, semantically reranks to drop off-topic hits (honestly surfacing `near_matches` — close-but-not-relevant candidates — when on-topic results are scarce), synthesizes across the retained papers, and writes a structured report set — executive summary, influential papers, recent work, trends synthesis, research gaps, and a bibliography — under `./literature-discovery/RESEARCH/{session}/outputs/`. Long runs are resumable: `--list-sessions` and `--resume [session_id]` continue where a session stopped. On top of the backbone's verification, the agent DOI-checks reported papers against Crossref (sampling at least 50%).
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_researcher.py" "AI literacy in teacher education" --depth medium
@@ -65,7 +65,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" citation-network \
 
 ### research-trend-analyzer
 
-Takes a topic and a window (`--years`, default 5) and searches Semantic Scholar year by year. Aggregation is plain deterministic counting: publications per year with growth rates, keyword-frequency evolution (words appearing ≥3 times), emerging topics (>30% growth), declining topics (>20% decline), top authors scored as papers × log(citations+1), and top venues. The agent turns those aggregates into a narrative — trend interpretation, key researchers, and a Foundational-5 + Cutting-edge-5 reading list drawn only from the returned papers. When a Korean journal appears among the top venues, it can pull that journal's KCI registration tier and citation-index history (`scripts/kci/kci_journal.py`) into the commentary.
+Takes a topic and a window (`--years`, default 5) and searches Semantic Scholar plus OpenAlex year by year, merging the two with DOI/title dedup. Aggregation is plain deterministic counting: publications per year with growth rates, keyword-frequency evolution (words appearing ≥3 times), emerging topics (>30% growth), declining topics (>20% decline), top authors scored as papers × log(citations+1), and top venues. The agent turns those aggregates into a narrative — trend interpretation, key researchers, and a Foundational-5 + Cutting-edge-5 reading list drawn only from the returned papers. When a Korean journal appears among the top venues, it can pull that journal's KCI registration tier and citation-index history (`scripts/kci/kci_journal.py`) into the commentary.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" research-trends \
@@ -100,6 +100,7 @@ All environment variables are optional — every feature works without any of th
 | `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API key ([free to request](https://www.semanticscholar.org/product/api)). Strongly recommended — see below. | unset (shared keyless pool) |
 | `OPENCITATIONS_API_TOKEN` | OpenCitations access token for authenticated (higher-limit) citation queries. | unset |
 | `KCI_API_KEY` | Enables Korean journal search via KCI (Korea Citation Index). | unset (KCI search skipped) |
+| `OPENALEX_API_KEY` | OpenAlex API key ([free signup, ~30 seconds](https://openalex.org/settings/api)) — raises the daily quota to ~1,000 searches on a $1/day credit. Unlike Semantic Scholar and KCI, OpenAlex is queried even without a key, on its own metered keyless quota ($0.10/day). | unset (still queried, on the smaller keyless quota) |
 | `PAPER_SCOUT_LLM_CMD` | Command template for an LLM CLI used for reranking and multi-paper synthesis. Reads the prompt from stdin. E.g. `PAPER_SCOUT_LLM_CMD=claude -p` or `PAPER_SCOUT_LLM_CMD=codex exec --sandbox read-only --skip-git-repo-check -` | unset (heuristic fallback, no narrative synthesis) |
 | `PAPER_SCOUT_OUTPUT_DIR` | Directory for report/session output files. | `./literature-discovery` |
 
@@ -109,8 +110,9 @@ All environment variables are optional — every feature works without any of th
 
 | Condition | Behavior |
 |---|---|
-| No keys, no `PAPER_SCOUT_LLM_CMD` | arXiv + ERIC work fully (no key needed). Semantic Scholar uses the shared keyless pool (slow, frequently `429`s). KCI search is skipped. Reranking/synthesis fall back to keyword-match heuristics — no narrative output, just ranked JSON. `coverage_manifest` records all of this. |
+| No keys, no `PAPER_SCOUT_LLM_CMD` | arXiv + ERIC work fully (no key needed). OpenAlex still works too, on its own metered keyless quota ($0.10/day). Semantic Scholar uses the shared keyless pool (slow, frequently `429`s). KCI search is skipped. Reranking falls back to a deterministic per-source rank heuristic (1.0 at each source's top rank, decaying 0.1 per rank, floored at 0.5) — no narrative synthesis, just ranked JSON with `coverage_manifest.rerank_mode: "heuristic_fallback"`. |
 | `SEMANTIC_SCHOLAR_API_KEY` set | Own rate limit instead of the shared pool — faster, more complete Semantic Scholar coverage. |
+| `OPENALEX_API_KEY` set | Own $1/day credit (~1,000 searches) instead of the $0.10/day keyless quota. |
 | `KCI_API_KEY` set | Korean journal search is added to results. |
 | `OPENCITATIONS_API_TOKEN` set | Authenticated OpenCitations queries for `citation-network-explorer` (higher limits). |
 | `PAPER_SCOUT_LLM_CMD` set | Reranking uses your LLM's judgment instead of keyword matching, and multi-paper synthesis (themes, consensus, conflicts, gaps) is produced. |
@@ -123,14 +125,14 @@ Nothing ever hard-fails for a missing key or missing LLM command — the pipelin
 python3 scripts/orchestrator.py related-papers --keywords "agentic AI in education" --limit 3
 ```
 
-Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_LLM_CMD` set) — Semantic Scholar hit its shared-pool `429` throttle, so this run's 4 results came from arXiv + ERIC only. This is the honest worst case, not a cherry-picked example; `coverage_manifest` documents exactly what happened. Abridged for length only, and this is the complete list of edits: every top-level key is shown; abridged nested objects carry an inline `"..."` entry naming their elided keys; each paper object shows 8 of its 19 fields (elided: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). No shown value is altered. One `excluded_sources` string is emitted in Korean by the tool regardless of locale.
+Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_LLM_CMD` set) — this run happened to catch both Semantic Scholar and arXiv mid-`429`, so all 3 results came from OpenAlex + ERIC. This is an honest worst case, not a cherry-picked example; `coverage_manifest` documents exactly what happened, including `counts_per_source` by real source name. Abridged for length only, and this is the complete list of edits: every top-level key is shown; abridged nested objects carry an inline `"..."` entry naming their elided keys; each paper object shows 8 of its 19 fields (elided: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). No shown value is altered. One `excluded_sources` string is emitted in Korean by the tool regardless of locale.
 
 ```json
 {
   "type": "related_papers",
   "search_query": "agentic AI in education",
   "search_metadata": {
-    "sources": ["semantic_scholar", "arxiv", "eric"],
+    "sources": ["semantic_scholar", "arxiv", "eric", "openalex"],
     "limit": 3,
     "...": "3 keys elided: search_date, year_range, min_citations"
   },
@@ -141,60 +143,50 @@ Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_
   },
   "highly_relevant": [
     {
-      "paper_id": "arxiv:2408.00025v3",
-      "title": "Need of AI in Modern Education: in the Eyes of Explainable AI (xAI)",
-      "doi": null,
-      "authors": ["Supriya Manna", "Niladri Sett"],
-      "year": 2024,
-      "url": "http://arxiv.org/abs/2408.00025v3",
+      "paper_id": "openalex:W4319662928",
+      "title": "Performance of ChatGPT on USMLE: Potential for AI-assisted medical education using large language models",
+      "doi": "10.1371/journal.pdig.0000198",
+      "authors": ["Tiffany H. Kung", "Morgan Cheatham", "Arielle Medenilla", "Czarina Sillos", "Lorie De Leon", "Camille Elepaño", "Maria Madriaga", "Rimel Aggabao", "Giezel Diaz-Candido", "James Maningo", "Victor Tseng"],
+      "year": 2023,
+      "url": "https://openalex.org/W4319662928",
       "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "arxiv:1303.0042v1",
-      "title": "Twelve Years of Education and Public Outreach with the Fermi Gamma-ray Space Telescope",
+      "paper_id": "eric:EJ1494645",
+      "title": "Comparing Traditional AI, Agentic AI and Agentic Rag for Dialogic Online Education",
       "doi": null,
-      "authors": ["Lynn Cominsky", "Kevin McLin", "Aurore Simonnet", "the Fermi Education", "Public Outreach Team"],
-      "year": 2013,
-      "url": "http://arxiv.org/abs/1303.0042v1",
-      "relevance_score": 0.95,
+      "authors": ["Vincent English"],
+      "year": 2025,
+      "url": "https://eric.ed.gov/?id=EJ1494645",
+      "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "arxiv:2504.08817v2",
-      "title": "Exploring utilization of generative AI for research and education in data-driven materials science",
-      "doi": "10.1080/27660400.2025.2535956",
-      "authors": ["Takahiro Misawa", "Ai Koizumi", "Ryo Tamura", "Kazuyoshi Yoshimi"],
-      "year": 2025,
-      "url": "http://arxiv.org/abs/2504.08817v2",
+      "paper_id": "openalex:W2981731882",
+      "title": "Explainable Artificial Intelligence (XAI): Concepts, taxonomies, opportunities and challenges toward responsible AI",
+      "doi": "10.1016/j.inffus.2019.12.012",
+      "authors": ["Alejandro Barredo Arrieta", "Natalia Díaz-Rodríguez", "Javier Del Ser", "Adrien Bennetot", "Siham Tabik", "Alberto Barbado", "Salvador García", "Sergio Gil-López", "Daniel Molina", "Richard Benjamins", "Raja Chatila", "Francisco Herrera"],
+      "year": 2019,
+      "url": "https://openalex.org/W2981731882",
       "relevance_score": 0.9,
       "relevance_reason": "keyword_match"
     }
   ],
-  "moderately_relevant": [
-    {
-      "paper_id": "eric:ED677111",
-      "title": "Reskilling the U.S. Military Workforce for the Agentic AI Era: A Framework for Educational Transformation",
-      "doi": null,
-      "authors": ["Satyadhar Joshi"],
-      "year": 2025,
-      "url": "https://eric.ed.gov/?id=ED677111",
-      "relevance_score": 0.75,
-      "relevance_reason": "keyword_match"
-    }
-  ],
+  "moderately_relevant": [],
   "synthesis": {
     "mode": "unavailable",
     "...": "7 keys elided (all empty in this run): themes, consensus, conflicts, gaps, limitations, cited_ids, flagged_uncited"
   },
   "coverage_manifest": {
-    "sources_queried": ["semantic_scholar", "arxiv", "eric"],
-    "total_retrieved": 4,
-    "returned": 4,
+    "sources_queried": ["semantic_scholar", "arxiv", "eric", "openalex"],
+    "counts_per_source": {"openalex": 2, "eric": 1},
+    "total_retrieved": 3,
+    "returned": 3,
     "rerank_mode": "heuristic_fallback",
     "excluded_sources": ["RISS", "DBpia", "KCI (키 미설정 또는 --no-kci)"],
     "confidence": "medium",
-    "...": "6 keys elided: search_query, counts_per_source, year_range, rerank_dropped, influential_threshold, influential_count"
+    "...": "5 keys elided: search_query, year_range, rerank_dropped, influential_threshold, influential_count"
   }
 }
 ```

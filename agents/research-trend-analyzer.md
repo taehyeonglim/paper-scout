@@ -56,7 +56,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" research-trends \
 | # | 단계 | 처리 주체 | 모듈 |
 |---|------|----------|------|
 | 1 | API 키 로드 + 설정 | Python | `config.py` |
-| 2 | 다년도 Semantic Scholar 검색 (year-by-year) | Python | `utils/api_clients.py` |
+| 2 | 다년도 Semantic Scholar 검색 (year-by-year) + OpenAlex 합산 (DOI+제목 dedup) | Python | `utils/api_clients.py` |
 | 3 | 연도별 publication 집계 + growth_rate 계산 | Python (Counter) | `_analyze_publication_trend` — 결정론 |
 | 4 | 키워드 진화 (연도별 빈도, ≥3회 필터) | Python (Counter) | `_analyze_keyword_evolution` |
 | 5 | 신흥/쇠퇴 주제 식별 (growth > 30% / decline > 20%) | Python | `_identify_emerging/declining` |

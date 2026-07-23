@@ -19,7 +19,7 @@ tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
 
 ## 역할
 
-주어진 키워드 또는 DOI를 기반으로 다중 학술 데이터베이스(Semantic Scholar, arXiv, ERIC, KCI)에서 관련 논문을 검색하고, 관련성 점수에 따라 분류합니다. 필요 시 후속 처리를 위한 `discovery_packet.yaml`도 함께 생성할 수 있습니다.
+주어진 키워드로는 다중 학술 데이터베이스(Semantic Scholar, arXiv, ERIC, KCI, OpenAlex)를 병렬 검색하고, 시드 DOI/paper ID로는 Semantic Scholar 추천·인용·참조 논문을 확장 검색하여 관련 논문을 찾고 관련성 점수에 따라 분류합니다. 필요 시 후속 처리를 위한 `discovery_packet.yaml`도 함께 생성할 수 있습니다.
 
 ## 표준 실행 패턴
 
@@ -50,7 +50,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
 | `--limit` | int | X | 결과 수 (기본: 10) |
 | `--year-range` | string | X | YYYY-YYYY (예: 2020-2024) |
 | `--min-citations` | int | X | 최소 인용수 필터 (기본: 0) |
-| `--no-arxiv` / `--no-eric` / `--no-kci` | flag | X | 해당 소스 제외 |
+| `--no-arxiv` / `--no-eric` / `--no-kci` / `--no-openalex` | flag | X | 해당 소스 제외 |
 | `--include-packet` | flag | X | `discovery_packet.yaml` 생성 (후속 처리용 기계 판독 가능 패킷) |
 | `--output-format` | enum | X | json (기본) / markdown / both |
 
@@ -59,7 +59,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
 | # | 단계 | 처리 주체 | 모듈 |
 |---|------|----------|------|
 | 1 | API 키 로드 + 설정 | Python | `config.py` |
-| 2 | Semantic Scholar/arXiv/ERIC/KCI 검색 (병렬) | Python | `utils/api_clients.py` |
+| 2 | Semantic Scholar/arXiv/ERIC/KCI/OpenAlex 검색 (병렬) | Python | `utils/api_clients.py` |
 | 3 | 중복 제거 (DOI 우선, fallback paper_id) | Python | `related_paper_finder.py` |
 | 4 | 관련성 점수 계산 (TF-IDF + citation 등) | Python | `_calculate_relevance_score()` — 결정론 |
 | 5 | 의미 관련성 재랭킹 (선택) | Python + LLM (`PAPER_SCOUT_LLM_CMD` 설정 시) | `intelligence/semantic_rerank.py` — 미설정 시 결정론 점수 그대로 사용(fail-soft) |

@@ -23,7 +23,7 @@ tools: Read, Glob, Grep, WebSearch, WebFetch, Write, Bash
 
 ## 기능
 
-- **다중 소스 검색**: Semantic Scholar + arXiv + ERIC + KCI(국내 학술지) 병렬 over-retrieve
+- **다중 소스 검색**: Semantic Scholar + arXiv + ERIC + KCI(국내 학술지) + OpenAlex 병렬 over-retrieve
 - **의미 관련성 rerank** (`semantic_rerank`): 키워드 매칭이 아닌 주제 의도 부합도로 재채점, off-topic 제거. `PAPER_SCOUT_LLM_CMD` 설정 시 LLM 재랭킹 활성, 미설정 시 검색 순위 기반 휴리스틱으로 fail-soft
 - **종합/통독** (`synthesize`): 초록 나열이 아닌 주제별 종합·합의/불일치·연구 갭. 마찬가지로 `PAPER_SCOUT_LLM_CMD` 설정 시 LLM 종합 활성, 미설정 시 빈 결과(`mode: "unavailable"`) — 인용 할루시네이션 가드(입력 논문 목록에 없는 id는 인용 거부) 포함
 - **커버리지 정직성** (`coverage_manifest`, 결정론): 검색·제외 범위·rerank 모드·confidence 명시. on-topic 희소 시 `near_matches`(근접 후보, relevant 아님) 노출

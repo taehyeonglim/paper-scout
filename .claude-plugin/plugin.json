@@ -1,6 +1,6 @@
 {
   "name": "paper-scout",
-  "version": "0.1.0",
-  "description": "Literature-discovery agents for Claude Code with a deterministic academic-API backbone: Semantic Scholar, arXiv, OpenCitations, ERIC, and KCI (Korea Citation Index).",
+  "version": "0.2.0",
+  "description": "Literature-discovery agents for Claude Code with a deterministic academic-API backbone: Semantic Scholar, arXiv, OpenCitations, ERIC, OpenAlex, and KCI (Korea Citation Index).",
   "author": { "name": "Taehyeong Lim" }
 }

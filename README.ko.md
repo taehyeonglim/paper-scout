@@ -8,7 +8,7 @@
 
 ## 소개
 
-paper-scout는 Claude Code 플러그인입니다: 4종의 문헌탐색 서브에이전트가 Python 백본과 짝을 이루며, API 호출·rate limiting·캐싱·스코어링 같은 결정론적 작업은 백본이 전담하고 LLM은 그 결과 JSON을 읽어 자연어로 종합하는 역할만 합니다. 백본은 Semantic Scholar·arXiv·OpenCitations·ERIC에 더해 **KCI(한국학술지인용색인)** 까지 조회하여, 대부분의 문헌탐색 도구가 놓치는 한국어 학술지 커버리지를 제공합니다.
+paper-scout는 Claude Code 플러그인입니다: 4종의 문헌탐색 서브에이전트가 Python 백본과 짝을 이루며, API 호출·rate limiting·캐싱·스코어링 같은 결정론적 작업은 백본이 전담하고 LLM은 그 결과 JSON을 읽어 자연어로 종합하는 역할만 합니다. 백본은 Semantic Scholar·arXiv·OpenCitations·ERIC·OpenAlex에 더해 **KCI(한국학술지인용색인)** 까지 조회하여, 대부분의 문헌탐색 도구가 놓치는 한국어 학술지 커버리지를 제공합니다.
 
 모든 실행은 `coverage_manifest`를 함께 반환합니다 — 어떤 소스를 조회했는지, 각 소스가 몇 건을 반환했는지, 소스가 제외됐다면 왜인지(키 없음, 플래그 비활성 등)를 기록합니다. 결과가 빈약한 것과 파이프라인이 고장난 것을 구분할 수 있게 해줍니다.
 
@@ -31,7 +31,7 @@ paper-scout는 Claude Code 플러그인입니다: 4종의 문헌탐색 서브에
 
 키워드, 시드 DOI, 또는 Semantic Scholar paper ID를 주면 백본이 다음을 수행합니다:
 
-1. Semantic Scholar · arXiv · ERIC · KCI 병렬 검색,
+1. 키워드 검색 시 Semantic Scholar · arXiv · ERIC · KCI · OpenAlex 병렬 검색 — 시드 DOI/paper ID는 대신 Semantic Scholar만으로 확장(추천 논문·인용 논문·참조 논문·제목 기반 키워드 검색; 나머지 4개 소스는 참여하지 않음),
 2. DOI 우선 중복 제거 (paper ID 폴백),
 3. 결정론적 관련성 스코어링 (TF-IDF + 인용 신호, 0.0–1.0 정규화),
 4. `PAPER_SCOUT_LLM_CMD` 설정 시 의미 부합도 기반 재랭킹 (미설정 시 키워드 휴리스틱 폴백 — 어느 쪽이 돌았는지는 `coverage_manifest.rerank_mode`에 기록),
@@ -48,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" related-papers \
 
 ### deep-researcher
 
-주제와 `--depth shallow|medium|deep`를 받아 같은 기계장치의 더 넓고 깊은 변형을 실행합니다: 4개 소스에서 과잉 수집(over-retrieve)한 뒤 의미 재랭킹으로 주제 이탈 결과를 제거하고(적합 결과가 희소하면 `near_matches` — 근접하지만 관련 판정은 아닌 후보 — 를 정직하게 노출), 잔류 논문을 종합해 구조화된 보고서 세트를 작성합니다 — 요약(executive summary)·영향력 있는 논문·최신 연구·트렌드 종합·연구 갭·참고문헌이 `./literature-discovery/RESEARCH/{세션}/outputs/`에 저장됩니다. 긴 실행은 재개 가능합니다: `--list-sessions`와 `--resume [session_id]`. 백본 검증에 더해, 에이전트가 보고 전 Crossref로 논문 DOI를 추가 검증합니다(전체의 50% 이상 샘플링).
+주제와 `--depth shallow|medium|deep`를 받아 같은 기계장치의 더 넓고 깊은 변형을 실행합니다: 5개 소스에서 과잉 수집(over-retrieve)한 뒤 의미 재랭킹으로 주제 이탈 결과를 제거하고(적합 결과가 희소하면 `near_matches` — 근접하지만 관련 판정은 아닌 후보 — 를 정직하게 노출), 잔류 논문을 종합해 구조화된 보고서 세트를 작성합니다 — 요약(executive summary)·영향력 있는 논문·최신 연구·트렌드 종합·연구 갭·참고문헌이 `./literature-discovery/RESEARCH/{세션}/outputs/`에 저장됩니다. 긴 실행은 재개 가능합니다: `--list-sessions`와 `--resume [session_id]`. 백본 검증에 더해, 에이전트가 보고 전 Crossref로 논문 DOI를 추가 검증합니다(전체의 50% 이상 샘플링).
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_researcher.py" "AI literacy in teacher education" --depth medium
@@ -65,7 +65,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" citation-network \
 
 ### research-trend-analyzer
 
-주제와 분석 기간(`--years`, 기본 5년)을 받아 Semantic Scholar를 연도별로 검색합니다. 집계는 순수 결정론 카운팅입니다: 연도별 출판 수와 성장률, 키워드 빈도 진화(3회 이상 등장), 신흥 주제(성장률 >30%), 쇠퇴 주제(감소율 >20%), 핵심 저자(papers × log(citations+1) 점수), 주요 저널. 에이전트는 이 집계를 서사로 바꿉니다 — 트렌드 해석, 핵심 연구자, 그리고 반환된 논문 안에서만 고른 Foundational 5 + Cutting-edge 5 추천 목록. 상위 저널에 국내 학술지가 나타나면 해당 저널의 KCI 등재구분·인용지수 이력(`scripts/kci/kci_journal.py`)을 해설에 반영할 수 있습니다.
+주제와 분석 기간(`--years`, 기본 5년)을 받아 Semantic Scholar와 OpenAlex를 연도별로 검색하고 DOI/제목 기준으로 병합합니다. 집계는 순수 결정론 카운팅입니다: 연도별 출판 수와 성장률, 키워드 빈도 진화(3회 이상 등장), 신흥 주제(성장률 >30%), 쇠퇴 주제(감소율 >20%), 핵심 저자(papers × log(citations+1) 점수), 주요 저널. 에이전트는 이 집계를 서사로 바꿉니다 — 트렌드 해석, 핵심 연구자, 그리고 반환된 논문 안에서만 고른 Foundational 5 + Cutting-edge 5 추천 목록. 상위 저널에 국내 학술지가 나타나면 해당 저널의 KCI 등재구분·인용지수 이력(`scripts/kci/kci_journal.py`)을 해설에 반영할 수 있습니다.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.py" research-trends \
@@ -100,6 +100,7 @@ pip install -r requirements.txt
 | `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API 키([무료 신청](https://www.semanticscholar.org/product/api)). 강력 권장 — 아래 참조. | 미설정 (공유 무키 풀) |
 | `OPENCITATIONS_API_TOKEN` | OpenCitations 인증 토큰 — 인증 시 인용 조회 한도가 상향됩니다. | 미설정 |
 | `KCI_API_KEY` | KCI(한국학술지인용색인) 경유 한국 저널 검색을 활성화합니다. | 미설정 (KCI 검색 skip) |
+| `OPENALEX_API_KEY` | OpenAlex API 키([무료 가입, 약 30초](https://openalex.org/settings/api)) — $1/day 크레딧으로 일일 한도를 약 1,000회 검색까지 올립니다. Semantic Scholar·KCI와 달리 OpenAlex는 키가 없어도 자체 계량 무키 쿼터($0.10/day)로 조회됩니다. | 미설정 (더 작은 무키 쿼터로 계속 조회됨) |
 | `PAPER_SCOUT_LLM_CMD` | 재랭킹/다중 논문 종합에 사용할 LLM CLI 커맨드 템플릿. 프롬프트를 stdin으로 받습니다. 예: `PAPER_SCOUT_LLM_CMD=claude -p` 또는 `PAPER_SCOUT_LLM_CMD=codex exec --sandbox read-only --skip-git-repo-check -` | 미설정 (휴리스틱 폴백, 자연어 종합 없음) |
 | `PAPER_SCOUT_OUTPUT_DIR` | 리포트/세션 출력 파일 디렉토리. | `./literature-discovery` |
 
@@ -109,8 +110,9 @@ pip install -r requirements.txt
 
 | 조건 | 동작 |
 |---|---|
-| 키 없음, `PAPER_SCOUT_LLM_CMD` 없음 | arXiv + ERIC은 키 없이 완전히 동작. Semantic Scholar는 공유 무키 풀 사용(느리고 잦은 `429`). KCI 검색은 skip. 재랭킹/종합은 키워드 매칭 휴리스틱으로 폴백 — 자연어 출력 없이 랭킹된 JSON만 반환. `coverage_manifest`가 이 모든 상황을 기록. |
+| 키 없음, `PAPER_SCOUT_LLM_CMD` 없음 | arXiv + ERIC은 키 없이 완전히 동작. OpenAlex도 자체 계량 무키 쿼터($0.10/day)로 계속 동작. Semantic Scholar는 공유 무키 풀 사용(느리고 잦은 `429`). KCI 검색은 skip. 재랭킹은 결정론적 소스별 순위 휴리스틱으로 폴백(각 소스 1위는 1.0, 순위당 0.1씩 감쇠, 0.5에서 floor) — 자연어 종합 없이 랭킹된 JSON만 반환하며 `coverage_manifest.rerank_mode: "heuristic_fallback"`으로 표시됨. |
 | `SEMANTIC_SCHOLAR_API_KEY` 설정 | 공유 풀 대신 자체 rate limit — 더 빠르고 완전한 Semantic Scholar 커버리지. |
+| `OPENALEX_API_KEY` 설정 | $0.10/day 무키 쿼터 대신 자체 $1/day 크레딧(약 1,000회 검색). |
 | `KCI_API_KEY` 설정 | 한국 저널 검색 결과가 추가됨. |
 | `OPENCITATIONS_API_TOKEN` 설정 | `citation-network-explorer`의 OpenCitations 조회가 인증되어 한도 상향. |
 | `PAPER_SCOUT_LLM_CMD` 설정 | 재랭킹이 키워드 매칭 대신 LLM 판단을 사용하고, 다중 논문 종합(테마·합의·충돌·갭)이 생성됨. |
@@ -123,14 +125,14 @@ pip install -r requirements.txt
 python3 scripts/orchestrator.py related-papers --keywords "agentic AI in education" --limit 3
 ```
 
-아래 출력은 실제 무키 실행(API 키 없음, `PAPER_SCOUT_LLM_CMD` 미설정)에서 캡처한 결과입니다 — Semantic Scholar가 공유 풀 `429` throttle에 걸려, 이번 실행의 4건 결과는 arXiv + ERIC에서만 나왔습니다. 이는 임의로 고른 예시가 아니라 정직한 최악의 케이스이며, `coverage_manifest`가 정확히 무슨 일이 있었는지 기록합니다. 축약은 길이 때문이며 다음이 편집의 전부입니다: top-level 키는 모두 표시; 축약된 중첩 객체는 인라인 `"..."` 항목으로 생략된 키를 명시; 각 논문 객체는 19개 필드 중 8개만 표시(생략: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). 표시된 값의 변조는 없습니다.
+아래 출력은 실제 무키 실행(API 키 없음, `PAPER_SCOUT_LLM_CMD` 미설정)에서 캡처한 결과입니다 — 이번 실행에서는 Semantic Scholar와 arXiv가 동시에 `429`에 걸려, 3건 결과 전부가 OpenAlex + ERIC에서 나왔습니다. 임의로 고른 예시가 아니라 정직한 최악의 케이스이며, `coverage_manifest`가 정확히 무슨 일이 있었는지 기록합니다 — `counts_per_source`도 실명 소스별로 표시됩니다. 축약은 길이 때문이며 다음이 편집의 전부입니다: top-level 키는 모두 표시; 축약된 중첩 객체는 인라인 `"..."` 항목으로 생략된 키를 명시; 각 논문 객체는 19개 필드 중 8개만 표시(생략: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). 표시된 값의 변조는 없습니다.
 
 ```json
 {
   "type": "related_papers",
   "search_query": "agentic AI in education",
   "search_metadata": {
-    "sources": ["semantic_scholar", "arxiv", "eric"],
+    "sources": ["semantic_scholar", "arxiv", "eric", "openalex"],
     "limit": 3,
     "...": "3개 키 생략: search_date, year_range, min_citations"
   },
@@ -141,60 +143,50 @@ python3 scripts/orchestrator.py related-papers --keywords "agentic AI in educati
   },
   "highly_relevant": [
     {
-      "paper_id": "arxiv:2408.00025v3",
-      "title": "Need of AI in Modern Education: in the Eyes of Explainable AI (xAI)",
-      "doi": null,
-      "authors": ["Supriya Manna", "Niladri Sett"],
-      "year": 2024,
-      "url": "http://arxiv.org/abs/2408.00025v3",
+      "paper_id": "openalex:W4319662928",
+      "title": "Performance of ChatGPT on USMLE: Potential for AI-assisted medical education using large language models",
+      "doi": "10.1371/journal.pdig.0000198",
+      "authors": ["Tiffany H. Kung", "Morgan Cheatham", "Arielle Medenilla", "Czarina Sillos", "Lorie De Leon", "Camille Elepaño", "Maria Madriaga", "Rimel Aggabao", "Giezel Diaz-Candido", "James Maningo", "Victor Tseng"],
+      "year": 2023,
+      "url": "https://openalex.org/W4319662928",
       "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "arxiv:1303.0042v1",
-      "title": "Twelve Years of Education and Public Outreach with the Fermi Gamma-ray Space Telescope",
+      "paper_id": "eric:EJ1494645",
+      "title": "Comparing Traditional AI, Agentic AI and Agentic Rag for Dialogic Online Education",
       "doi": null,
-      "authors": ["Lynn Cominsky", "Kevin McLin", "Aurore Simonnet", "the Fermi Education", "Public Outreach Team"],
-      "year": 2013,
-      "url": "http://arxiv.org/abs/1303.0042v1",
-      "relevance_score": 0.95,
+      "authors": ["Vincent English"],
+      "year": 2025,
+      "url": "https://eric.ed.gov/?id=EJ1494645",
+      "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "arxiv:2504.08817v2",
-      "title": "Exploring utilization of generative AI for research and education in data-driven materials science",
-      "doi": "10.1080/27660400.2025.2535956",
-      "authors": ["Takahiro Misawa", "Ai Koizumi", "Ryo Tamura", "Kazuyoshi Yoshimi"],
-      "year": 2025,
-      "url": "http://arxiv.org/abs/2504.08817v2",
+      "paper_id": "openalex:W2981731882",
+      "title": "Explainable Artificial Intelligence (XAI): Concepts, taxonomies, opportunities and challenges toward responsible AI",
+      "doi": "10.1016/j.inffus.2019.12.012",
+      "authors": ["Alejandro Barredo Arrieta", "Natalia Díaz-Rodríguez", "Javier Del Ser", "Adrien Bennetot", "Siham Tabik", "Alberto Barbado", "Salvador García", "Sergio Gil-López", "Daniel Molina", "Richard Benjamins", "Raja Chatila", "Francisco Herrera"],
+      "year": 2019,
+      "url": "https://openalex.org/W2981731882",
       "relevance_score": 0.9,
       "relevance_reason": "keyword_match"
     }
   ],
-  "moderately_relevant": [
-    {
-      "paper_id": "eric:ED677111",
-      "title": "Reskilling the U.S. Military Workforce for the Agentic AI Era: A Framework for Educational Transformation",
-      "doi": null,
-      "authors": ["Satyadhar Joshi"],
-      "year": 2025,
-      "url": "https://eric.ed.gov/?id=ED677111",
-      "relevance_score": 0.75,
-      "relevance_reason": "keyword_match"
-    }
-  ],
+  "moderately_relevant": [],
   "synthesis": {
     "mode": "unavailable",
     "...": "7개 키 생략(이번 실행에서는 모두 빈 값): themes, consensus, conflicts, gaps, limitations, cited_ids, flagged_uncited"
   },
   "coverage_manifest": {
-    "sources_queried": ["semantic_scholar", "arxiv", "eric"],
-    "total_retrieved": 4,
-    "returned": 4,
+    "sources_queried": ["semantic_scholar", "arxiv", "eric", "openalex"],
+    "counts_per_source": {"openalex": 2, "eric": 1},
+    "total_retrieved": 3,
+    "returned": 3,
     "rerank_mode": "heuristic_fallback",
     "excluded_sources": ["RISS", "DBpia", "KCI (키 미설정 또는 --no-kci)"],
     "confidence": "medium",
-    "...": "6개 키 생략: search_query, counts_per_source, year_range, rerank_dropped, influential_threshold, influential_count"
+    "...": "5개 키 생략: search_query, year_range, rerank_dropped, influential_threshold, influential_count"
   }
 }
 ```
