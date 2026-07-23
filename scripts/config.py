@@ -19,6 +19,7 @@ class Config:
     semantic_scholar_api_key: Optional[str] = None
     opencitations_api_token: Optional[str] = None
     kci_api_key: Optional[str] = None
+    openalex_api_key: Optional[str] = None
 
     # Paths — 사용자 작업 디렉토리 기준. PAPER_SCOUT_OUTPUT_DIR로 오버라이드 가능.
     base_dir: Path = field(default_factory=Path.cwd)
@@ -57,6 +58,7 @@ class Config:
             semantic_scholar_api_key=os.getenv("SEMANTIC_SCHOLAR_API_KEY") or None,
             opencitations_api_token=os.getenv("OPENCITATIONS_API_TOKEN") or None,
             kci_api_key=os.getenv("KCI_API_KEY") or None,
+            openalex_api_key=os.getenv("OPENALEX_API_KEY") or None,
 
             # Cache Settings
             cache_ttl_days=int(os.getenv("CACHE_TTL_DAYS", "7")),

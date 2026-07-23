@@ -1107,3 +1107,68 @@ class KCIClient:
             fields_of_study=fields,
             source_db="kci",
         )
+
+
+class OpenAlexClient:
+    """
+    OpenAlex API 클라이언트 (https://api.openalex.org)
+
+    2026 usage-based 정책: 무료 키($1/day 크레딧 — 검색 1,000회/day) 권장.
+    무키도 $0.10/day 계량 쿼터로 동작하므로 S2와 달리 무키 시에도 호출한다.
+    402/429(쿼터 소진)는 fail-soft 빈 결과 + 무료 키 안내 1회 로그.
+    """
+
+    BASE_URL = "https://api.openalex.org/works"
+
+    def __init__(self, api_key: Optional[str] = None, cache_ttl_days: int = 7):
+        self.api_key = api_key or os.getenv("OPENALEX_API_KEY")
+        # 실제 제약은 초당이 아니라 일일 크레딧 — 보수적 5/s 고정
+        self.rate_limiter = RateLimiter(calls_per_second=5.0)
+        self.cache = CacheManager("openalex", ttl_days=cache_ttl_days)
+        self._quota_hint_shown = False
+        logger.info(f"OpenAlexClient initialized (API key: {'Yes' if self.api_key else 'No'})")
+
+    def _warn_quota_once(self) -> None:
+        if not self._quota_hint_shown:
+            self._quota_hint_shown = True
+            logger.warning(
+                "OpenAlex daily quota exhausted. A free API key raises the limit "
+                "(~1,000 searches/day) — 30-second signup at "
+                "https://openalex.org/settings/api, then set OPENALEX_API_KEY."
+            )
+
+    def search_papers(
+        self,
+        query: str,
+        limit: int = 10,
+        year_range: Optional[tuple] = None,
+        force_refresh: bool = False,
+    ) -> List[Paper]:
+        cache_key = f"openalex:search:{query}:{limit}:{year_range}"
+        if not force_refresh:
+            cached = self.cache.get(cache_key)
+            if cached:
+                return [Paper.from_openalex(p) for p in cached]
+
+        params: Dict[str, Any] = {"search": query, "per-page": min(max(limit, 1), 200)}
+        if year_range:
+            params["filter"] = f"publication_year:{year_range[0]}-{year_range[1]}"
+        if self.api_key:
+            params["api_key"] = self.api_key
+
+        try:
+            self.rate_limiter.wait()
+            resp = requests.get(self.BASE_URL, params=params, timeout=30)
+            if resp.status_code in (402, 429):
+                self._warn_quota_once()
+                return []
+            resp.raise_for_status()
+            results = resp.json().get("results", [])[:limit]
+        except _API_EXCEPTIONS as e:
+            logger.warning(f"OpenAlex search failed (fail-soft): {e}")
+            return []
+
+        self.cache.set(cache_key, results)
+        papers = [Paper.from_openalex(p) for p in results]
+        logger.info(f"OpenAlex search '{query}': {len(papers)} papers")
+        return papers

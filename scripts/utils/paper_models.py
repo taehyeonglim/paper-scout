@@ -207,6 +207,33 @@ class Paper:
         )
 
     @classmethod
+    def from_openalex(cls, data: Dict[str, Any]) -> "Paper":
+        """OpenAlex /works 응답 1건 → Paper (DOI는 https://doi.org/ 접두 제거)"""
+        doi = data.get("doi") or None
+        if doi and doi.startswith("https://doi.org/"):
+            doi = doi[len("https://doi.org/"):]
+        authors = [
+            Author(name=a["author"]["display_name"])
+            for a in data.get("authorships", [])
+            if (a.get("author") or {}).get("display_name")
+        ]
+        primary = data.get("primary_location") or {}
+        source = primary.get("source") or {}
+        openalex_id = (data.get("id") or "").rsplit("/", 1)[-1]
+        return cls(
+            paper_id=f"openalex:{openalex_id}" if openalex_id else f"openalex:{doi or ''}",
+            title=data.get("display_name") or "",
+            authors=authors,
+            year=data.get("publication_year"),
+            venue=source.get("display_name"),
+            abstract=reconstruct_openalex_abstract(data.get("abstract_inverted_index")),
+            doi=doi,
+            citation_count=data.get("cited_by_count", 0) or 0,
+            url=data.get("id"),
+            source_db="openalex",
+        )
+
+    @classmethod
     def from_arxiv(cls, result) -> "Paper":
         """arXiv API 결과에서 Paper 생성"""
         authors = [Author(name=a.name) for a in result.authors]
@@ -305,3 +332,14 @@ class NetworkAnalysis:
             "avg_out_degree": self.avg_out_degree,
             "num_clusters": self.num_clusters,
         }
+
+
+def reconstruct_openalex_abstract(inverted_index) -> "Optional[str]":
+    """OpenAlex abstract_inverted_index({단어: [위치...]}) → 원문 복원. 부재 시 None."""
+    if not inverted_index:
+        return None
+    positions = [(idx, word) for word, idxs in inverted_index.items() for idx in idxs]
+    if not positions:
+        return None
+    positions.sort(key=lambda t: t[0])
+    return " ".join(word for _, word in positions)
