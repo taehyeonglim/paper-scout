@@ -32,7 +32,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import Config
-from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient
+from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient, OpenAlexClient
 from utils.paper_models import Paper, Author, RelevanceLevel
 from utils.markdown_writer import MarkdownWriter
 from utils.quality_grader import grade_paper, get_grade_description, get_grade_color
@@ -246,6 +246,9 @@ class DeepResearcher:
         self.eric_client = ERICClient(cache_ttl_days=config.cache_ttl_days)
         self.kci_client = KCIClient(
             api_key=config.kci_api_key, cache_ttl_days=config.cache_ttl_days
+        )
+        self.openalex_client = OpenAlexClient(
+            api_key=config.openalex_api_key, cache_ttl_days=config.cache_ttl_days
         )
 
         # 출력
@@ -545,6 +548,21 @@ class DeepResearcher:
                 except (OSError, ValueError, TypeError, AttributeError, RuntimeError, requests.RequestException) as e:
                     query_api_failures += 1
                     logger.warning(f"ERIC error: {e}")
+
+            # OpenAlex (usage-based free tier)
+            if config.sources in ["all", "academic"]:
+                query_api_attempts += 1
+                try:
+                    papers = self.openalex_client.search_papers(
+                        query,
+                        limit=config.papers_per_source,
+                        year_range=config.year_range
+                    )
+                    added_count += self._add_papers_to_state(papers, state, config, source_db="openalex")
+                    logger.debug(f"OpenAlex: {len(papers)} papers")
+                except (OSError, ValueError, TypeError, AttributeError, RuntimeError, requests.RequestException) as e:
+                    query_api_failures += 1
+                    logger.warning(f"OpenAlex error: {e}")
 
             # KCI (국내 학술지 — 인증키 있을 때만)
             if config.sources in ["all", "academic"] and self.kci_client.available:

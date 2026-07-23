@@ -21,7 +21,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import Config
-from utils.api_clients import SemanticScholarClient
+from utils.api_clients import SemanticScholarClient, OpenAlexClient
 from utils.paper_models import Paper, TrendData
 from utils.markdown_writer import MarkdownWriter
 
@@ -62,6 +62,7 @@ class ResearchTrendAnalyzer:
         self.ss_client = SemanticScholarClient(
             api_key=config.semantic_scholar_api_key
         )
+        self.openalex_client = OpenAlexClient(api_key=config.openalex_api_key)
         self.writer = MarkdownWriter(str(config.output_dir))
 
     def analyze_trend(
@@ -136,10 +137,31 @@ class ResearchTrendAnalyzer:
                 year_range=(year, year)
             )
 
+            oa_papers = self.openalex_client.search_papers(
+                topic, limit=papers_per_year, year_range=(year, year)
+            )
+            papers = self._dedupe_by_doi_title(list(papers) + list(oa_papers))
+
             papers_by_year[year] = papers
             logger.debug(f"  {year}: {len(papers)} papers")
 
         return papers_by_year
+
+    def _dedupe_by_doi_title(self, papers):
+        """DOI 우선, 제목 정규화 보조 중복 제거 (소스 간 겹침 흡수)"""
+        seen_dois, seen_titles, unique = set(), set(), []
+        for p in papers:
+            if p.doi and p.doi in seen_dois:
+                continue
+            title_key = (p.title or "").lower().strip()
+            if not p.doi and title_key and title_key in seen_titles:
+                continue
+            if p.doi:
+                seen_dois.add(p.doi)
+            if title_key:
+                seen_titles.add(title_key)
+            unique.append(p)
+        return unique
 
     def _analyze_publication_trend(
         self,

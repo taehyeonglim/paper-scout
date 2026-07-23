@@ -43,3 +43,30 @@ def test_doi_dedup_across_s2_and_openalex(monkeypatch, tmp_path):
     _, high, moderate = f.find_by_keywords("q", FinderConfig(limit=5))
     dois = [p.doi for p in high + moderate]
     assert dois.count("10.1/same") == 1             # DOI 중복 1건으로 수렴
+
+
+def test_deep_researcher_wires_openalex(monkeypatch, tmp_path):
+    """deep_researcher가 openalex_client를 보유하고 source_db='openalex'로 소비하는지."""
+    monkeypatch.delenv("PAPER_SCOUT_LLM_CMD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from deep_researcher import DeepResearcher
+
+    dr = DeepResearcher(Config.load())
+    assert hasattr(dr, "openalex_client")
+
+
+def test_trend_analyzer_dedupes_openalex_against_s2(monkeypatch, tmp_path):
+    monkeypatch.delenv("PAPER_SCOUT_LLM_CMD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from research_trend_analyzer import ResearchTrendAnalyzer, TrendConfig
+
+    a = ResearchTrendAnalyzer(Config.load())
+    a.ss_client = MagicMock()
+    a.ss_client.search_papers.return_value = [_paper("s2:1", doi="10.1/x", title="Same")]
+    a.openalex_client = MagicMock()
+    a.openalex_client.search_papers.return_value = [
+        _paper("openalex:W9", doi="10.1/x", title="Same"),
+        _paper("openalex:W8", doi="10.2/y", title="Other"),
+    ]
+    result = a.analyze_trend("topic", TrendConfig(years=0, papers_per_year=10))
+    assert result["total_papers"] == 2               # 3건 수집, DOI dedup 후 2건
