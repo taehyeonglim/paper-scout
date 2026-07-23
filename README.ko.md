@@ -100,7 +100,7 @@ pip install -r requirements.txt
 | `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API 키([무료 신청](https://www.semanticscholar.org/product/api)). 강력 권장 — 아래 참조. | 미설정 (공유 무키 풀) |
 | `OPENCITATIONS_API_TOKEN` | OpenCitations 인증 토큰 — 인증 시 인용 조회 한도가 상향됩니다. | 미설정 |
 | `KCI_API_KEY` | KCI(한국학술지인용색인) 경유 한국 저널 검색을 활성화합니다. | 미설정 (KCI 검색 skip) |
-| `OPENALEX_API_KEY` | OpenAlex API 키([무료 가입, 약 30초](https://openalex.org/settings/api)) — $1/day 크레딧으로 일일 한도를 약 1,000회 검색까지 올립니다. Semantic Scholar·KCI와 달리 OpenAlex는 키가 없어도 자체 계량 무키 쿼터($0.10/day)로 조회됩니다. | 미설정 (더 작은 무키 쿼터로 계속 조회됨) |
+| `OPENALEX_API_KEY` | OpenAlex API 키([무료 가입, 약 30초](https://openalex.org/settings/api)) — $1/day 크레딧으로 일일 한도를 약 1,000회 검색까지 올립니다. 무키 동작이 다른 소스와 다릅니다: 키 없으면 아예 skip되는 KCI와도, 공유 무키 풀을 쓰는 Semantic Scholar와도 달리, 무키 OpenAlex는 호출자별 자체 계량 쿼터($0.10/day)로 계속 조회됩니다. | 미설정 (더 작은 무키 쿼터로 계속 조회됨) |
 | `PAPER_SCOUT_LLM_CMD` | 재랭킹/다중 논문 종합에 사용할 LLM CLI 커맨드 템플릿. 프롬프트를 stdin으로 받습니다. 예: `PAPER_SCOUT_LLM_CMD=claude -p` 또는 `PAPER_SCOUT_LLM_CMD=codex exec --sandbox read-only --skip-git-repo-check -` | 미설정 (휴리스틱 폴백, 자연어 종합 없음) |
 | `PAPER_SCOUT_OUTPUT_DIR` | 리포트/세션 출력 파일 디렉토리. | `./literature-discovery` |
 
@@ -122,15 +122,15 @@ pip install -r requirements.txt
 ## 사용 예시
 
 ```bash
-python3 scripts/orchestrator.py related-papers --keywords "agentic AI in education" --limit 3
+python3 scripts/orchestrator.py related-papers --keywords "virtual reality teacher training" --limit 3
 ```
 
-아래 출력은 실제 무키 실행(API 키 없음, `PAPER_SCOUT_LLM_CMD` 미설정)에서 캡처한 결과입니다 — 이번 실행에서는 Semantic Scholar와 arXiv가 동시에 `429`에 걸려, 3건 결과 전부가 OpenAlex + ERIC에서 나왔습니다. 임의로 고른 예시가 아니라 정직한 최악의 케이스이며, `coverage_manifest`가 정확히 무슨 일이 있었는지 기록합니다 — `counts_per_source`도 실명 소스별로 표시됩니다. 축약은 길이 때문이며 다음이 편집의 전부입니다: top-level 키는 모두 표시; 축약된 중첩 객체는 인라인 `"..."` 항목으로 생략된 키를 명시; 각 논문 객체는 19개 필드 중 8개만 표시(생략: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). 표시된 값의 변조는 없습니다.
+아래 출력은 실제 무키 실행에서 캡처한 결과입니다 — 빈 임시 디렉토리(`.env` 파일 없음)에서 모든 키 변수를 명시적으로 빈 값으로 두고 `PAPER_SCOUT_LLM_CMD`도 없이 실행했으며, 도구 자체의 시작 로그가 이를 증명합니다(`SemanticScholarClient initialized (API key: No)`, `OpenAlexClient initialized (API key: No)`, KCI 비활성). Semantic Scholar가 공유 풀 `429` throttle에 걸려, 3건 결과는 arXiv·ERIC·OpenAlex에서 각 1건씩 나왔습니다 — OpenAlex는 계량 무키 쿼터로 동작했습니다. 임의로 고른 예시가 아니라 정직한 최악의 케이스이며, `coverage_manifest`가 정확히 무슨 일이 있었는지 기록합니다 — `counts_per_source`도 실명 소스별로 표시됩니다. 축약은 길이 때문이며 다음이 편집의 전부입니다: top-level 키는 모두 표시; 축약된 중첩 객체는 인라인 `"..."` 항목으로 생략된 키를 명시; 각 논문 객체는 19개 필드 중 8개만 표시(생략: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). 표시된 값의 변조는 없습니다.
 
 ```json
 {
   "type": "related_papers",
-  "search_query": "agentic AI in education",
+  "search_query": "virtual reality teacher training",
   "search_metadata": {
     "sources": ["semantic_scholar", "arxiv", "eric", "openalex"],
     "limit": 3,
@@ -138,38 +138,38 @@ python3 scripts/orchestrator.py related-papers --keywords "agentic AI in educati
   },
   "seed_paper": {
     "paper_id": "query",
-    "title": "Search: agentic AI in education",
+    "title": "Search: virtual reality teacher training",
     "...": "17개 키 생략(아래 논문 항목과 동일한 19필드 구조의 나머지 필드) — 키워드 검색 시 생성되는 스텁 항목"
   },
   "highly_relevant": [
     {
-      "paper_id": "openalex:W4319662928",
-      "title": "Performance of ChatGPT on USMLE: Potential for AI-assisted medical education using large language models",
-      "doi": "10.1371/journal.pdig.0000198",
-      "authors": ["Tiffany H. Kung", "Morgan Cheatham", "Arielle Medenilla", "Czarina Sillos", "Lorie De Leon", "Camille Elepaño", "Maria Madriaga", "Rimel Aggabao", "Giezel Diaz-Candido", "James Maningo", "Victor Tseng"],
+      "paper_id": "arxiv:2307.09558v1",
+      "title": "Fitted avatars: automatic skeleton adjustment for self-avatars in virtual reality",
+      "doi": "10.1007/s10055-023-00821-z",
+      "authors": ["Jose Luis Ponton", "Víctor Ceballos", "Lesly Acosta", "Alejandro Ríos", "Eva Monclús", "Nuria Pelechano"],
       "year": 2023,
-      "url": "https://openalex.org/W4319662928",
+      "url": "http://arxiv.org/abs/2307.09558v1",
       "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "eric:EJ1494645",
-      "title": "Comparing Traditional AI, Agentic AI and Agentic Rag for Dialogic Online Education",
+      "paper_id": "openalex:W2770934685",
+      "title": "A review of the use of virtual reality head-mounted displays in education and training",
+      "doi": "10.1007/s10639-017-9676-0",
+      "authors": ["Lasse X Jensen", "Flemming Konradsen"],
+      "year": 2017,
+      "url": "https://openalex.org/W2770934685",
+      "relevance_score": 1.0,
+      "relevance_reason": "keyword_match"
+    },
+    {
+      "paper_id": "eric:ED363321",
+      "title": "Special Experiences for Exceptional Students: Integrating Virtual Reality into Special Education Classrooms.",
       "doi": null,
-      "authors": ["Vincent English"],
-      "year": 2025,
-      "url": "https://eric.ed.gov/?id=EJ1494645",
+      "authors": ["Miller, Erez Cedric"],
+      "year": 1993,
+      "url": "https://eric.ed.gov/?id=ED363321",
       "relevance_score": 1.0,
-      "relevance_reason": "keyword_match"
-    },
-    {
-      "paper_id": "openalex:W2981731882",
-      "title": "Explainable Artificial Intelligence (XAI): Concepts, taxonomies, opportunities and challenges toward responsible AI",
-      "doi": "10.1016/j.inffus.2019.12.012",
-      "authors": ["Alejandro Barredo Arrieta", "Natalia Díaz-Rodríguez", "Javier Del Ser", "Adrien Bennetot", "Siham Tabik", "Alberto Barbado", "Salvador García", "Sergio Gil-López", "Daniel Molina", "Richard Benjamins", "Raja Chatila", "Francisco Herrera"],
-      "year": 2019,
-      "url": "https://openalex.org/W2981731882",
-      "relevance_score": 0.9,
       "relevance_reason": "keyword_match"
     }
   ],
@@ -180,7 +180,7 @@ python3 scripts/orchestrator.py related-papers --keywords "agentic AI in educati
   },
   "coverage_manifest": {
     "sources_queried": ["semantic_scholar", "arxiv", "eric", "openalex"],
-    "counts_per_source": {"openalex": 2, "eric": 1},
+    "counts_per_source": {"arxiv": 1, "openalex": 1, "eric": 1},
     "total_retrieved": 3,
     "returned": 3,
     "rerank_mode": "heuristic_fallback",

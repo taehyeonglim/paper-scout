@@ -100,7 +100,7 @@ All environment variables are optional — every feature works without any of th
 | `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API key ([free to request](https://www.semanticscholar.org/product/api)). Strongly recommended — see below. | unset (shared keyless pool) |
 | `OPENCITATIONS_API_TOKEN` | OpenCitations access token for authenticated (higher-limit) citation queries. | unset |
 | `KCI_API_KEY` | Enables Korean journal search via KCI (Korea Citation Index). | unset (KCI search skipped) |
-| `OPENALEX_API_KEY` | OpenAlex API key ([free signup, ~30 seconds](https://openalex.org/settings/api)) — raises the daily quota to ~1,000 searches on a $1/day credit. Unlike Semantic Scholar and KCI, OpenAlex is queried even without a key, on its own metered keyless quota ($0.10/day). | unset (still queried, on the smaller keyless quota) |
+| `OPENALEX_API_KEY` | OpenAlex API key ([free signup, ~30 seconds](https://openalex.org/settings/api)) — raises the daily quota to ~1,000 searches on a $1/day credit. Keyless behavior differs from the others: unlike KCI (skipped entirely without a key) and unlike Semantic Scholar (shared keyless pool), keyless OpenAlex is still queried on its own per-caller metered quota ($0.10/day). | unset (still queried, on the smaller keyless quota) |
 | `PAPER_SCOUT_LLM_CMD` | Command template for an LLM CLI used for reranking and multi-paper synthesis. Reads the prompt from stdin. E.g. `PAPER_SCOUT_LLM_CMD=claude -p` or `PAPER_SCOUT_LLM_CMD=codex exec --sandbox read-only --skip-git-repo-check -` | unset (heuristic fallback, no narrative synthesis) |
 | `PAPER_SCOUT_OUTPUT_DIR` | Directory for report/session output files. | `./literature-discovery` |
 
@@ -122,15 +122,15 @@ Nothing ever hard-fails for a missing key or missing LLM command — the pipelin
 ## Usage
 
 ```bash
-python3 scripts/orchestrator.py related-papers --keywords "agentic AI in education" --limit 3
+python3 scripts/orchestrator.py related-papers --keywords "virtual reality teacher training" --limit 3
 ```
 
-Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_LLM_CMD` set) — this run happened to catch both Semantic Scholar and arXiv mid-`429`, so all 3 results came from OpenAlex + ERIC. This is an honest worst case, not a cherry-picked example; `coverage_manifest` documents exactly what happened, including `counts_per_source` by real source name. Abridged for length only, and this is the complete list of edits: every top-level key is shown; abridged nested objects carry an inline `"..."` entry naming their elided keys; each paper object shows 8 of its 19 fields (elided: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). No shown value is altered. One `excluded_sources` string is emitted in Korean by the tool regardless of locale.
+Captured output below is from a real, keyless run — executed in an empty temp directory (no `.env` file) with every key variable explicitly empty and no `PAPER_SCOUT_LLM_CMD`; the tool's own startup logs confirm it (`SemanticScholarClient initialized (API key: No)`, `OpenAlexClient initialized (API key: No)`, KCI disabled). Semantic Scholar hit its shared-pool `429` throttle, so the 3 results came one each from arXiv, ERIC, and OpenAlex — the latter on its metered keyless quota. This is an honest worst case, not a cherry-picked example; `coverage_manifest` documents exactly what happened, including `counts_per_source` by real source name. Abridged for length only, and this is the complete list of edits: every top-level key is shown; abridged nested objects carry an inline `"..."` entry naming their elided keys; each paper object shows 8 of its 19 fields (elided: `venue`, `citation_count`, `abstract`, `relevance_level`, `pagerank`, `betweenness`, `in_degree`, `out_degree`, `cluster_id`, `quality_grade`, `source_db`). No shown value is altered. One `excluded_sources` string is emitted in Korean by the tool regardless of locale.
 
 ```json
 {
   "type": "related_papers",
-  "search_query": "agentic AI in education",
+  "search_query": "virtual reality teacher training",
   "search_metadata": {
     "sources": ["semantic_scholar", "arxiv", "eric", "openalex"],
     "limit": 3,
@@ -138,38 +138,38 @@ Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_
   },
   "seed_paper": {
     "paper_id": "query",
-    "title": "Search: agentic AI in education",
+    "title": "Search: virtual reality teacher training",
     "...": "17 keys elided (the remaining fields of the same 19-field paper shape used by the entries below) — stub entry generated for keyword searches"
   },
   "highly_relevant": [
     {
-      "paper_id": "openalex:W4319662928",
-      "title": "Performance of ChatGPT on USMLE: Potential for AI-assisted medical education using large language models",
-      "doi": "10.1371/journal.pdig.0000198",
-      "authors": ["Tiffany H. Kung", "Morgan Cheatham", "Arielle Medenilla", "Czarina Sillos", "Lorie De Leon", "Camille Elepaño", "Maria Madriaga", "Rimel Aggabao", "Giezel Diaz-Candido", "James Maningo", "Victor Tseng"],
+      "paper_id": "arxiv:2307.09558v1",
+      "title": "Fitted avatars: automatic skeleton adjustment for self-avatars in virtual reality",
+      "doi": "10.1007/s10055-023-00821-z",
+      "authors": ["Jose Luis Ponton", "Víctor Ceballos", "Lesly Acosta", "Alejandro Ríos", "Eva Monclús", "Nuria Pelechano"],
       "year": 2023,
-      "url": "https://openalex.org/W4319662928",
+      "url": "http://arxiv.org/abs/2307.09558v1",
       "relevance_score": 1.0,
       "relevance_reason": "keyword_match"
     },
     {
-      "paper_id": "eric:EJ1494645",
-      "title": "Comparing Traditional AI, Agentic AI and Agentic Rag for Dialogic Online Education",
+      "paper_id": "openalex:W2770934685",
+      "title": "A review of the use of virtual reality head-mounted displays in education and training",
+      "doi": "10.1007/s10639-017-9676-0",
+      "authors": ["Lasse X Jensen", "Flemming Konradsen"],
+      "year": 2017,
+      "url": "https://openalex.org/W2770934685",
+      "relevance_score": 1.0,
+      "relevance_reason": "keyword_match"
+    },
+    {
+      "paper_id": "eric:ED363321",
+      "title": "Special Experiences for Exceptional Students: Integrating Virtual Reality into Special Education Classrooms.",
       "doi": null,
-      "authors": ["Vincent English"],
-      "year": 2025,
-      "url": "https://eric.ed.gov/?id=EJ1494645",
+      "authors": ["Miller, Erez Cedric"],
+      "year": 1993,
+      "url": "https://eric.ed.gov/?id=ED363321",
       "relevance_score": 1.0,
-      "relevance_reason": "keyword_match"
-    },
-    {
-      "paper_id": "openalex:W2981731882",
-      "title": "Explainable Artificial Intelligence (XAI): Concepts, taxonomies, opportunities and challenges toward responsible AI",
-      "doi": "10.1016/j.inffus.2019.12.012",
-      "authors": ["Alejandro Barredo Arrieta", "Natalia Díaz-Rodríguez", "Javier Del Ser", "Adrien Bennetot", "Siham Tabik", "Alberto Barbado", "Salvador García", "Sergio Gil-López", "Daniel Molina", "Richard Benjamins", "Raja Chatila", "Francisco Herrera"],
-      "year": 2019,
-      "url": "https://openalex.org/W2981731882",
-      "relevance_score": 0.9,
       "relevance_reason": "keyword_match"
     }
   ],
@@ -180,7 +180,7 @@ Captured output below is from a real, keyless run (no API keys, no `PAPER_SCOUT_
   },
   "coverage_manifest": {
     "sources_queried": ["semantic_scholar", "arxiv", "eric", "openalex"],
-    "counts_per_source": {"openalex": 2, "eric": 1},
+    "counts_per_source": {"arxiv": 1, "openalex": 1, "eric": 1},
     "total_retrieved": 3,
     "returned": 3,
     "rerank_mode": "heuristic_fallback",
