@@ -123,6 +123,7 @@ def run_related_papers(args: argparse.Namespace) -> dict:
         include_arxiv=not args.no_arxiv,
         include_eric=not args.no_eric,
         include_kci=not args.no_kci,
+        include_openalex=not args.no_openalex,
     )
     kci_active = (not args.no_kci) and finder.kci_client.available
 
@@ -147,6 +148,7 @@ def run_related_papers(args: argparse.Namespace) -> dict:
                     ("arxiv", not args.no_arxiv),
                     ("eric", not args.no_eric),
                     ("kci", kci_active),
+                    ("openalex", not args.no_openalex),
                 ) if on
             ],
             "limit": args.limit,
@@ -175,6 +177,8 @@ def run_related_papers(args: argparse.Namespace) -> dict:
     excluded = list(DEFAULT_EXCLUDED)
     if not kci_active:
         excluded.append("KCI (키 미설정 또는 --no-kci)")
+    if args.no_openalex:
+        excluded.append("OpenAlex (--no-openalex)")
     output["coverage_manifest"] = build_manifest(
         search_query=search_query,
         sources_queried=output["search_metadata"]["sources"],
@@ -325,6 +329,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--no-arxiv", action="store_true")
     rp.add_argument("--no-eric", action="store_true")
     rp.add_argument("--no-kci", action="store_true")
+    rp.add_argument("--no-openalex", action="store_true")
     rp.add_argument(
         "--include-packet",
         action="store_true",

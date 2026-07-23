@@ -20,7 +20,7 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import Config
-from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient
+from utils.api_clients import SemanticScholarClient, ArxivClient, ERICClient, KCIClient, OpenAlexClient
 from utils.paper_models import Paper, RelevanceLevel
 from utils.markdown_writer import MarkdownWriter
 from intelligence.semantic_rerank import rerank
@@ -43,6 +43,7 @@ class FinderConfig:
     include_arxiv: bool = True
     include_eric: bool = True          # ERIC 검색 포함 (교육학)
     include_kci: bool = True           # KCI 검색 포함 (국내 학술지, 키 있을 때만)
+    include_openalex: bool = True      # OpenAlex 검색 포함 (usage-based, 키 없어도 동작)
     semantic_threshold: float = 0.8    # 높은 관련성 임계값
     moderate_threshold: float = 0.5    # 중간 관련성 임계값
 
@@ -58,6 +59,7 @@ class RelatedPaperFinder:
         self.arxiv_client = ArxivClient()
         self.eric_client = ERICClient()
         self.kci_client = KCIClient(api_key=config.kci_api_key)
+        self.openalex_client = OpenAlexClient(api_key=config.openalex_api_key)
         self.writer = MarkdownWriter(str(config.output_dir))
         self.last_rerank_mode = "heuristic_fallback"
         self.last_rerank_dropped = 0
@@ -115,8 +117,19 @@ class RelatedPaperFinder:
                 year_range=year_range
             )
 
+        # OpenAlex 검색 (선택적)
+        openalex_papers = []
+        if finder_config.include_openalex:
+            openalex_papers = self.openalex_client.search_papers(
+                keywords,
+                limit=finder_config.limit,
+                year_range=year_range
+            )
+
         # 결과 통합 및 중복 제거
-        all_papers = self._merge_and_deduplicate(ss_papers, arxiv_papers, eric_papers, kci_papers)
+        all_papers = self._merge_and_deduplicate(
+            ss_papers, arxiv_papers, eric_papers, kci_papers, openalex_papers
+        )
 
         # 인용 수 필터링
         if finder_config.min_citations > 0:
@@ -269,14 +282,18 @@ class RelatedPaperFinder:
         ss_papers: List[Paper],
         arxiv_papers: List[Paper],
         eric_papers: List[Paper] = None,
-        kci_papers: List[Paper] = None
+        kci_papers: List[Paper] = None,
+        openalex_papers: List[Paper] = None
     ) -> List[Paper]:
         """여러 소스의 결과 통합 및 중복 제거"""
         seen_titles = set()
         seen_dois = set()
         unique_papers = []
 
-        all_sources = ss_papers + arxiv_papers + (eric_papers or []) + (kci_papers or [])
+        all_sources = (
+            ss_papers + arxiv_papers + (eric_papers or []) + (kci_papers or [])
+            + (openalex_papers or [])
+        )
         for paper in all_sources:
             # DOI로 중복 체크
             if paper.doi and paper.doi in seen_dois:
